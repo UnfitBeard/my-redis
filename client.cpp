@@ -1,14 +1,104 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <assert.h>
 #include <unistd.h>
+
+const size_t k_max_msg = 4096;
 
 void die(const char *msg)
 {
-    perror(msg);
+    printf(msg);
     exit(EXIT_FAILURE);
+}
+
+static int32_t write_all(int fd, const char *buf, size_t n)
+{
+    while (n > 0)
+    {
+        ssize_t rv = write(fd, buf, n);
+        if (rv <= 0)
+        {
+            return -1; // EOF or error
+        }
+        assert((size_t)rv <= n);
+        n -= (size_t)rv;
+        buf += rv;
+    }
+    return 0;
+}
+
+static int32_t read_full(int fd, char *buf, size_t n)
+{
+    while (n > 0)
+    {
+        ssize_t rv = read(fd, buf, n);
+        if (rv <= 0)
+        {
+            return -1; // EOF or error
+        }
+
+        assert((size_t)rv <= n);
+        n -= (size_t)rv;
+    }
+    return 0;
+}
+
+static int32_t query(int fd, const char *text)
+{
+    uint32_t len = (uint32_t)strlen(text);
+    if (len > k_max_msg)
+    {
+        return -1;
+    }
+
+    char wbuf[4 + k_max_msg];
+    memcpy(wbuf, &len, 4); // assume little endian
+    memcpy(&wbuf[4], text, len);
+
+    if (int32_t err = write_all(fd, wbuf, 4 + len))
+    {
+        return err;
+    }
+
+    // 4 bytes header
+    char rbuf[4 + k_max_msg + 1];
+    errno = 0;
+    int32_t err = read_full(fd, rbuf, 4);
+    if (err)
+    {
+        if (errno == 0)
+        {
+            printf("EOF");
+        }
+        else
+        {
+            printf("Read() error");
+        }
+        return err;
+    }
+    memcpy(&len, rbuf, 4);
+    if (len > k_max_msg)
+    {
+        printf("Msg too long");
+        return -1;
+    }
+
+    // reply body
+    err = read_full(fd, &rbuf[4], len);
+    if (err)
+    {
+        printf("read() error");
+        return err;
+    }
+
+    // do something
+    rbuf[4 + len] = '\0';
+    printf("server says: %s\n", &rbuf[4]);
+    return 0;
 }
 
 int main()
@@ -31,15 +121,33 @@ int main()
         die("connect");
     }
 
-    char msg[] = "hello";
-    write(fd, msg, strlen(msg));
+    // char msg[] = "hello";
+    // write(fd, msg, strlen(msg));
 
-    char rbuf[64] = {};
-    ssize_t n = read(fd, rbuf, sizeof(rbuf) - 1);
-    if (n < 0)
+    // char rbuf[64] = {};
+    // ssize_t n = read(fd, rbuf, sizeof(rbuf) - 1);
+    // if (n < 0)
+    // {
+    //     die("read");
+    // }
+    // printf("Server says: %s\n", rbuf);
+
+    int32_t err = query(fd, "Hello1");
+    if (err)
     {
-        die("read");
+        goto L_DONE;
     }
-    printf("Server says: %s\n", rbuf);
+    err = query(fd, "hello2");
+    if (err)
+    {
+        goto L_DONE;
+    }
+    err = query(fd, "hello3");
+    if (err)
+    {
+        goto L_DONE;
+    }
+L_DONE:
     close(fd);
+    return 0;
 }

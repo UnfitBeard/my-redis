@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <assert.h>
 #include <unistd.h>
 
 const size_t k_max_msg = 4096;
@@ -32,7 +34,7 @@ static int32_t read_full(int fd, char *buf, size_t n)
 {
     while (n > 0)
     {
-        ssize_t rv = write(fd, buf, n);
+        ssize_t rv = read(fd, buf, n);
         if (rv <= 0)
         {
             return -1; // EOF or error
@@ -53,7 +55,7 @@ static int32_t write_all(int fd, const char *buf, size_t n)
         {
             return -1; // EOF or error
         }
-        assert((size_t)rv < = n);
+        assert((size_t)rv <= n);
         n -= (size_t)rv;
         buf += rv;
     }
@@ -70,11 +72,11 @@ static int32_t one_request(int connfd)
     {
         if (errno == 0)
         {
-            msg('EOF');
+            perror("EOF");
         }
         else
         {
-            msg("read() error");
+            perror("read() error");
         }
         return err;
     }
@@ -83,7 +85,7 @@ static int32_t one_request(int connfd)
     memcpy(&len, rbuf, 4); // Assume little endian
     if (len > k_max_msg)
     {
-        msg("too long");
+        perror("too long");
         return -1;
     }
 
@@ -91,7 +93,7 @@ static int32_t one_request(int connfd)
     err = read_full(connfd, &rbuf[4], len);
     if (err)
     {
-        msg("read() error");
+        perror("read() error");
         return err;
     }
 
@@ -125,7 +127,7 @@ int main()
     int rv = bind(fd, (const sockaddr *)&addr, sizeof(addr));
     if (rv)
     {
-        die("bind()");
+        die("listen()");
     }
 
     rv = listen(fd, SOMAXCONN);
